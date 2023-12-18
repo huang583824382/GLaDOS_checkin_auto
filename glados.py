@@ -24,6 +24,11 @@ if __name__ == '__main__':
     for cookie in cookies:
         checkin = requests.post(url,headers={'cookie': cookie ,'referer': referer,'origin':origin,'user-agent':useragent,'content-type':'application/json;charset=UTF-8'},data=json.dumps(payload))
         state =  requests.get(url2,headers={'cookie': cookie ,'referer': referer,'origin':origin,'user-agent':useragent})
+        if checkin.status_code != 200:
+            print('cookie已失效')
+            continue
+        #
+        
     #--------------------------------------------------------------------------------------------------------#  
         time = state.json()['data']['leftDays']
         time = time.split('.')[0]
