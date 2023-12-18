@@ -30,11 +30,11 @@ if __name__ == '__main__':
         #
 
     #--------------------------------------------------------------------------------------------------------#  
-        time = state.json()['data']['leftDays']
+        time = str(state.json()['data']['leftDays'])
         try:
             time = time.split('.')[0]
         except:
-            time = state.json()['data']['leftDays']
+            time = str(state.json()['data']['leftDays'])
         email = state.json()['data']['email']
         if 'message' in checkin.text:
             mess = checkin.json()['message']
