@@ -28,10 +28,13 @@ if __name__ == '__main__':
             print('cookie已失效')
             continue
         #
-        
+
     #--------------------------------------------------------------------------------------------------------#  
         time = state.json()['data']['leftDays']
-        time = time.split('.')[0]
+        try:
+            time = time.split('.')[0]
+        except:
+            time = state.json()['data']['leftDays']
         email = state.json()['data']['email']
         if 'message' in checkin.text:
             mess = checkin.json()['message']
