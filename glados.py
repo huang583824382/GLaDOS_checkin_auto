@@ -13,6 +13,7 @@ if __name__ == '__main__':
         print('未获取到COOKIE变量') 
         cookies = []
         exit(0)
+    print(cookies)
     url= "https://glados.rocks/api/user/checkin"
     url2= "https://glados.rocks/api/user/status"
     referer = 'https://glados.rocks/console/checkin'
