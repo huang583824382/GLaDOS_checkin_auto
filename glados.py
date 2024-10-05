@@ -32,7 +32,10 @@ if __name__ == '__main__':
         #
 
     #--------------------------------------------------------------------------------------------------------#  
-        time = str(state.json()['data']['leftDays'])
+        try:
+            time = str(state.json()['data']['leftDays'])
+        except:
+            print(state)
         try:
             time = time.split('.')[0]
         except:
