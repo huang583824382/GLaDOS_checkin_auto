@@ -35,7 +35,7 @@ if __name__ == '__main__':
         try:
             time = str(state.json()['data']['leftDays'])
         except:
-            print(state)
+            print(state.json())
         try:
             time = time.split('.')[0]
         except:
