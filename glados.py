@@ -22,6 +22,7 @@ if __name__ == '__main__':
     payload={
         'token': 'glados.one'
     }
+    email = ""
     for cookie in cookies:
         # print(cookie)
         checkin = requests.post(url,headers={'cookie': cookie ,'referer': referer,'origin':origin,'user-agent':useragent,'content-type':'application/json;charset=UTF-8'},data=json.dumps(payload))
