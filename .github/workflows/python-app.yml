@@ -36,6 +36,3 @@ jobs:
           CHECKIN_DIAGNOSTIC_ONLY: ${{ github.event.inputs.diagnose_only || 'false' }}
           CHECKIN_MAX_ATTEMPTS: '3'
           CHECKIN_RETRY_DELAY_SECONDS: '60'
-
-      - name: Keepalive workflow
-        uses: gautamkrishnar/keepalive-workflow@master
