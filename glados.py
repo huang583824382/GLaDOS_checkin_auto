@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import time
+import traceback
 from datetime import datetime
 
 import requests
@@ -249,6 +250,7 @@ class GLaDOS:
 
     def req(self, method, path, data=None, form=False):
         """带自动域名切换的请求；form=True 时以表单提交。"""
+        last_error = None
         for d in DOMAINS:
             try:
                 url = f"{d}{path}"
@@ -269,10 +271,15 @@ class GLaDOS:
                 if resp.status_code == 200:
                     self.domain = d
                     return resp.json()
+                last_error = RuntimeError(f"{d} 返回 HTTP {resp.status_code}")
                 log(f"⚠️ {d} 返回 HTTP {resp.status_code}")
             except (requests.RequestException, ValueError) as e:
-                log(f"⚠️ {d} 请求失败: {type(e).__name__}")
+                last_error = e
+                log(f"⚠️ {d} 请求失败: {type(e).__name__}: {e}")
                 continue
+
+        if last_error is not None:
+            raise RuntimeError(f"GLaDOS 请求失败: {last_error}") from last_error
         return None
 
     def get_status(self):
@@ -378,7 +385,7 @@ def pushplus(token, title, content):
         return True
     except (requests.RequestException, ValueError, RuntimeError) as e:
         log(f"❌ PushPlus 推送失败: {e}")
-        return False
+        raise
 
 
 def telegram_push(token, chat_id, title, content):
@@ -403,12 +410,12 @@ def telegram_push(token, chat_id, title, content):
         resp = requests.post(url, json=data, timeout=10)
         if resp.status_code != 200:
             log(f"❌ Telegram 推送失败: HTTP {resp.status_code}")
-            return False
+            raise RuntimeError(f"Telegram HTTP {resp.status_code}")
         log("✅ Telegram 推送成功")
         return True
-    except (requests.RequestException, ValueError) as e:
+    except (requests.RequestException, ValueError, RuntimeError) as e:
         log(f"❌ Telegram 推送失败: {e}")
-        return False
+        raise
 
 
 def diagnose_accounts(cookies):
@@ -519,4 +526,8 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        raise SystemExit(main())
+    except Exception:
+        traceback.print_exc()
+        raise
