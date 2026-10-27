@@ -8,16 +8,15 @@
 - 识别新版 Cookie：gld:sess 与 gld:sess.sig
 - 兼容浏览器 UA / device-mismatch 检查
 - 支持多账号（GLADOS_COOKIE 可用 & 或换行分隔）
-- 支持 PushPlus / Telegram 推送
 - 可选自动兑换积分（EXCHANGE_PLAN）
 """
 
-import html
 import json
 import os
 import re
 import sys
 import time
+import traceback
 from datetime import datetime
 
 import requests
@@ -53,6 +52,11 @@ NORMAL_CHECKIN_MESSAGES = (
     "checkin! got",
     "checkin repeats! please try tomorrow",
     "today's observation logged",
+    "already checked in",
+    "already checked-in",
+    "已签到",
+    "已经签到",
+    "重复签到",
 )
 
 EXCHANGE_PLANS = {
@@ -132,7 +136,7 @@ def get_session_cookie_kind(cookie_header):
 def get_cookies():
     raw = os.environ.get("GLADOS_COOKIE", "")
     if not raw:
-        log("❌ 未配置 GLADOS_COOKIE")
+        log("未配置 GLADOS_COOKIE")
         return []
 
     if raw.lstrip().startswith(('{', '[')):
@@ -194,7 +198,7 @@ def is_non_retryable_checkin_result(result):
 
 def is_normal_checkin_result(result):
     """识别正常签到/重复签到/今日已记录。"""
-    if not isinstance(result, dict):
+    if not isinstance(result, dict) or is_non_retryable_checkin_result(result):
         return False
 
     message = str(result.get('message', '')).strip().lower()
@@ -209,7 +213,11 @@ def checkin_with_retry(client, attempts=3, delay_seconds=60):
     last_result = None
 
     for attempt in range(1, attempts + 1):
-        last_result = client.checkin()
+        try:
+            last_result = client.checkin()
+        except (requests.RequestException, ValueError, RuntimeError):
+            traceback.print_exc()
+            last_result = None
         if is_normal_checkin_result(last_result):
             return last_result, True
 
@@ -217,11 +225,11 @@ def checkin_with_retry(client, attempts=3, delay_seconds=60):
             message = last_result.get('message', '认证失败')
             if last_result.get('reason') == 'device-mismatch':
                 message = '登录设备不匹配，请重新登录并更新完整 Cookie 与 GLADOS_USER_AGENT'
-            log(f"❌ 签到认证失败，不再重试: {message}")
+            log(f"签到认证失败，不再重试: {message}")
             return last_result, False
 
         if attempt < attempts:
-            log(f"⚠️ 签到第 {attempt}/{attempts} 次失败，{delay_seconds} 秒后重试")
+            log(f"签到第 {attempt}/{attempts} 次失败，{delay_seconds} 秒后重试")
             time.sleep(max(0, delay_seconds))
 
     return last_result, False
@@ -236,19 +244,16 @@ class GLaDOS:
         self.email = "?"
         self.left_days = "?"
         self.points = "?"
-        self.points_change = "?"
-        self.exchange_info = ""
-        self.exchange_result = ""
-        self.plan = "?"
         self.session_cookie_kind = get_session_cookie_kind(cookie)
         if self.session_cookie_kind != 'gld':
             log(
-                "⚠️ Cookie 未包含完整的 gld:sess 与 gld:sess.sig；"
+                "Cookie 未包含完整的 gld:sess 与 gld:sess.sig；"
                 "2026-09 新版接口可能返回“没有权限”"
             )
 
     def req(self, method, path, data=None, form=False):
         """带自动域名切换的请求；form=True 时以表单提交。"""
+        last_error = None
         for d in DOMAINS:
             try:
                 url = f"{d}{path}"
@@ -269,10 +274,14 @@ class GLaDOS:
                 if resp.status_code == 200:
                     self.domain = d
                     return resp.json()
-                log(f"⚠️ {d} 返回 HTTP {resp.status_code}")
+                last_error = RuntimeError(f"{d} 返回 HTTP {resp.status_code}")
+                log(f"{d} 返回 HTTP {resp.status_code}")
             except (requests.RequestException, ValueError) as e:
-                log(f"⚠️ {d} 请求失败: {type(e).__name__}")
+                last_error = e
+                log(f"{d} 请求失败: {type(e).__name__}: {e}")
                 continue
+        if last_error is not None:
+            raise RuntimeError(f"GLaDOS 请求失败: {last_error}") from last_error
         return None
 
     def get_status(self):
@@ -286,30 +295,10 @@ class GLaDOS:
         return False
 
     def get_points(self):
-        """获取积分、变化历史、兑换计划。"""
+        """获取当前积分。"""
         res = self.req('GET', '/api/user/points')
         if res and 'points' in res:
             self.points = str(res.get('points', '0')).split('.')[0]
-
-            history = res.get('history', [])
-            if history:
-                last = history[0]
-                change = str(last.get('change', '0')).split('.')[0]
-                if not change.startswith('-'):
-                    change = '+' + change
-                self.points_change = change
-
-            plans = res.get('plans', {})
-            pts = int(float(self.points))
-            exchange_lines = []
-            for plan_data in plans.values():
-                need = int(plan_data.get('points', 0))
-                days = plan_data.get('days', '?')
-                if pts >= need:
-                    exchange_lines.append(f"✅ {need}分→{days}天 (可兑换)")
-                else:
-                    exchange_lines.append(f"❌ {need}分→{days}天 (差{need-pts}分)")
-            self.exchange_info = "<br>".join(exchange_lines)
             return True
         return False
 
@@ -328,7 +317,7 @@ def get_exchange_plan():
         return None
     if raw in EXCHANGE_PLANS:
         return raw
-    log(f"⚠️ EXCHANGE_PLAN 值 '{raw}' 无效 (可选: {'/'.join(EXCHANGE_PLANS)}/off)，本次跳过兑换")
+    log(f"EXCHANGE_PLAN 值 '{raw}' 无效 (可选: {'/'.join(EXCHANGE_PLANS)}/off)，本次跳过兑换")
     return None
 
 
@@ -339,83 +328,29 @@ def auto_exchange(g, plan_id):
     try:
         pts = int(float(g.points))
     except (TypeError, ValueError):
-        log("⚠️ 积分查询失败，跳过兑换")
-        return "⚠️ 兑换跳过(积分查询失败)"
+        log("积分查询失败，跳过兑换")
+        return "兑换跳过(积分查询失败)"
 
     if pts < need:
-        return f"⏭️ 积分不足({pts}/{need})，攒够自动兑换{days}天"
+        return f"积分不足({pts}/{need})，攒够自动兑换{days}天"
 
     res = g.exchange(plan_id)
     if res and res.get('code') == 0:
-        log(f"🎁 自动兑换成功: {need}分 → +{days}天")
+        log(f"自动兑换成功: {need}分 → +{days}天")
         g.get_status()
         g.get_points()
-        return f"🎁 兑换成功 +{days}天 (消耗{need}分)"
+        return f"兑换成功 +{days}天 (消耗{need}分)"
 
     err = res.get('message', 'Failure') if res else "Network Error"
-    log(f"⚠️ 自动兑换失败: {err}")
-    return f"⚠️ 兑换失败({err})"
-
-
-# ================= 推送 =================
-
-
-def pushplus(token, title, content):
-    if not token:
-        return False
-    try:
-        url = "https://www.pushplus.plus/send"
-        response = requests.post(
-            url,
-            json={'token': token, 'title': title, 'content': content, 'template': 'html'},
-            timeout=10,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if payload.get('code') not in (None, 0, 200):
-            raise RuntimeError(payload.get('msg', f"PushPlus code={payload.get('code')}"))
-        log("✅ PushPlus 推送成功")
-        return True
-    except (requests.RequestException, ValueError, RuntimeError) as e:
-        log(f"❌ PushPlus 推送失败: {e}")
-        return False
-
-
-def telegram_push(token, chat_id, title, content):
-    if not token or not chat_id:
-        return False
-    try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        text = f"<b>{title}</b>\n\n{content}"
-        text = text.replace("<br>", "\n")
-        text = re.sub(r"<h3[^>]*>", "<b>", text)
-        text = text.replace("</h3>", "</b>\n")
-        text = re.sub(r"<(div|p)[^>]*>", "", text)
-        text = re.sub(r"</(div|p)>", "\n", text)
-        text = re.sub(r"<(span|small)[^>]*>", "", text)
-        text = re.sub(r"</(span|small)>", "", text)
-        text = re.sub(r"<(?!\/?(b|i|u|s|a|code|pre)\b)[^>]+>", "", text)
-        lines = [line.strip() for line in text.split('\n')]
-        text = "\n".join(lines)
-        text = re.sub(r"\n\s*\n", "\n\n", text).strip()
-
-        data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
-        resp = requests.post(url, json=data, timeout=10)
-        if resp.status_code != 200:
-            log(f"❌ Telegram 推送失败: HTTP {resp.status_code}")
-            return False
-        log("✅ Telegram 推送成功")
-        return True
-    except (requests.RequestException, ValueError) as e:
-        log(f"❌ Telegram 推送失败: {e}")
-        return False
+    log(f"自动兑换失败: {err}")
+    return f"兑换失败({err})"
 
 
 def diagnose_accounts(cookies):
-    """只读诊断：仅查登录状态，不签到、不兑换、不推送。"""
+    """只读诊断：仅查登录状态，不签到、不兑换。"""
     success_cnt = 0
     has_user_agent = bool(os.environ.get('GLADOS_USER_AGENT', '').strip())
-    log('🔎 只读诊断：仅查询登录状态，不签到、不兑换、不推送')
+    log('只读诊断：仅查询登录状态，不签到、不兑换')
     log('浏览器 User-Agent: ' + ('已配置' if has_user_agent else '未配置，使用默认值'))
     for i, cookie in enumerate(cookies, 1):
         client = GLaDOS(cookie)
@@ -428,17 +363,17 @@ def diagnose_accounts(cookies):
         )
         if authenticated:
             success_cnt += 1
-            log(f'✅ 账号 {i}: 登录状态查询成功')
+            log(f'账号 {i}: 登录状态查询成功')
         elif is_non_retryable_checkin_result(result):
-            log(f'❌ 账号 {i}: 会话认证被拒绝，请重新登录并更新完整 Cookie')
+            log(f'账号 {i}: 会话认证被拒绝，请重新登录并更新完整 Cookie')
         else:
-            log(f'❌ 账号 {i}: 登录状态查询失败，请检查网络并重新登录更新 Cookie')
+            log(f'账号 {i}: 登录状态查询失败，请检查网络并重新登录更新 Cookie')
     log('只读查询通过不代表签到设备校验通过；实际签到仍需匹配浏览器 User-Agent')
     return 0 if success_cnt == len(cookies) else 1
 
 
 def main():
-    log("🚀 2026 GLaDOS Checkin Starting...")
+    log("2026 GLaDOS Checkin Starting...")
     cookies = get_cookies()
     if not cookies:
         return 1
@@ -449,13 +384,11 @@ def main():
     exchange_plan = get_exchange_plan()
     if exchange_plan:
         plan = EXCHANGE_PLANS[exchange_plan]
-        log(f"🎁 自动兑换已启用: {plan['points']}分 → {plan['days']}天 (EXCHANGE_PLAN={exchange_plan})")
+        log(f"自动兑换已启用: {plan['points']}分 → {plan['days']}天 (EXCHANGE_PLAN={exchange_plan})")
     else:
-        log("⏭️ 自动兑换未启用")
+        log("自动兑换未启用")
 
-    results = []
     success_cnt = 0
-    exchange_events = 0
 
     for i, cookie in enumerate(cookies, 1):
         g = GLaDOS(cookie)
@@ -463,60 +396,29 @@ def main():
         attempts = int(os.environ.get("CHECKIN_MAX_ATTEMPTS", "3"))
         delay_seconds = int(os.environ.get("CHECKIN_RETRY_DELAY_SECONDS", "60"))
         res, is_success = checkin_with_retry(g, attempts, delay_seconds)
-        msg = res.get('message', 'Failure') if res else "Network Error"
-
-        g.get_status()
-        g.get_points()
-
-        if exchange_plan:
-            g.exchange_result = auto_exchange(g, exchange_plan)
-            if not g.exchange_result.startswith("⏭️"):
-                exchange_events += 1
-
-        status_icon = "✅" if is_success else "❌"
-        log(f"{status_icon} 账号 {i} | 积分: {g.points} | 天数: {g.left_days} | 结果: {msg}")
+        msg = res.get('message', 'Failure') if isinstance(res, dict) else "Network Error"
 
         if is_success:
             success_cnt += 1
 
-        exchange_line = ""
-        if exchange_plan:
-            exchange_line = f"""
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>自动兑换:</b> {html.escape(g.exchange_result)}</p>"""
-        results.append(f"""
-<div style="border:2px solid #333; padding:15px; margin-bottom:15px; border-radius:10px; background:#fff;">
-    <h3 style="margin:0 0 15px 0; color:#333; border-bottom:2px solid #333; padding-bottom:8px;">👤 {html.escape(str(g.email))}</h3>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>当前积分:</b> <span style="color:#e74c3c; font-size:22px; font-weight:bold;">{g.points}</span> <span style="color:#27ae60; font-weight:bold;">{g.points_change}</span></p>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>剩余天数:</b> <span style="font-weight:bold;">{g.left_days} 天</span></p>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>签到结果:</b> {html.escape(str(msg))}</p>{exchange_line}
-    <div style="margin-top:15px; padding:12px; background:#f0f0f0; border-radius:8px; border:1px solid #ccc;">
-        <p style="margin:0 0 8px 0; color:#333; font-weight:bold; font-size:15px;">🎁 兑换选项:</p>
-        <p style="margin:0; color:#000; font-size:14px; line-height:1.8;">{g.exchange_info}</p>
-    </div>
-</div>
-""")
+            # 附加查询和兑换不影响签到结果及退出状态。
+            try:
+                g.get_status()
+                g.get_points()
+                if exchange_plan:
+                    log(auto_exchange(g, exchange_plan))
+            except Exception as exc:
+                log(f"账号 {i} 附加操作失败: {type(exc).__name__}")
 
-    push_level = os.environ.get("PUSH_LEVEL", "fail_only").lower()
-    if push_level == "fail_only" and success_cnt == len(cookies) and exchange_events == 0:
-        log("⏭️ 根据 PUSH_LEVEL=fail_only 设置，所有账号签到成功，跳过推送")
-        return 0
-
-    ptoken = os.environ.get("PUSHPLUS_TOKEN")
-    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    tg_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-
-    if ptoken or (tg_token and tg_chat_id):
-        title = f"GLaDOS签到: 成功{success_cnt}/{len(cookies)}"
-        content = "".join(results)
-        content += f"<br><small>时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</small>"
-
-        if ptoken:
-            pushplus(ptoken, title, content)
-        if tg_token and tg_chat_id:
-            telegram_push(tg_token, tg_chat_id, title, content)
+        status = "签到成功或已签到" if is_success else "签到失败"
+        log(f"{status} | 账号 {i} | 积分: {g.points} | 天数: {g.left_days} | 结果: {msg}")
 
     return 0 if success_cnt == len(cookies) else 1
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        raise SystemExit(main())
+    except Exception:
+        traceback.print_exc()
+        raise

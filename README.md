@@ -4,7 +4,7 @@
 
 复制了一个仓库，进行了些修改，防止原仓库被封
 
-环境变量：`GLADOS_COOKIE`（必要） 和 `PUSHPLUS_TOKEN`（非必要）
+环境变量：`GLADOS_COOKIE`（必要）
 
 `GLADOS_COOKIE`多个账号需使用 '&' 隔开，示例：cookie&cookie
 
@@ -25,4 +25,6 @@
 
  # 青龙面板
 
-直接把 glados_Qinglong.py 文件放到青龙里，环境变量同上
+将 `glados_Qinglong.py` 和 `glados.py` 一起放到青龙里，环境变量同上。
+
+签到成功或识别到当日已签到时正常退出（退出码 0）；任一账号签到失败时返回非零退出码。状态查询、积分查询和自动兑换失败只记录日志，不影响签到退出码。

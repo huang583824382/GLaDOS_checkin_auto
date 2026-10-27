@@ -28,10 +28,6 @@ jobs:
         env:
           GLADOS_COOKIE: ${{ secrets.GLADOS_COOKIE }}
           GLADOS_USER_AGENT: ${{ vars.GLADOS_USER_AGENT }}
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          PUSH_LEVEL: ${{ vars.PUSH_LEVEL }}
           EXCHANGE_PLAN: ${{ vars.EXCHANGE_PLAN }}
           CHECKIN_DIAGNOSTIC_ONLY: ${{ github.event.inputs.diagnose_only || 'false' }}
           CHECKIN_MAX_ATTEMPTS: '3'

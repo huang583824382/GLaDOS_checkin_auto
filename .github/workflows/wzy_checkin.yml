@@ -27,4 +27,3 @@ jobs:
           python3 glados.py
         env: 
           GLADOS_COOKIE: "${{ secrets.GLADOS_COOKIE_WZY }}"
-          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN_WZY }}
