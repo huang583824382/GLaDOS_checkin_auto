@@ -76,13 +76,30 @@ class CheckinTests(unittest.TestCase):
                 self.assertEqual(module.checkin_with_retry(client), ({'code': 0}, True))
             self.assertEqual(client.checkin.call_count, 2)
 
-    def test_auth_failure_is_not_retried(self):
-        import glados
-        client = Mock()
-        client.checkin.return_value = {'code': -2, 'message': '没有权限'}
-        with patch.object(glados, 'log'):
-            self.assertFalse(glados.checkin_with_retry(client)[1])
-        client.checkin.assert_called_once()
+    def test_failures_retry_once(self):
+        for name in ('glados', 'glados_2026'):
+            module = importlib.import_module(name)
+            for result in (None, {'code': 1, 'message': 'Failure'},
+                           {'code': -2, 'message': '没有权限'}):
+                with self.subTest(module=name, result=result):
+                    client = Mock()
+                    client.checkin.return_value = result
+                    with patch.object(module, 'log'), patch.object(module.time, 'sleep') as sleep:
+                        self.assertEqual(module.checkin_with_retry(client), (result, False))
+                    self.assertEqual(client.checkin.call_count, 2)
+                    sleep.assert_called_once_with(60)
+
+    def test_success_does_not_retry(self):
+        for name in ('glados', 'glados_2026'):
+            module = importlib.import_module(name)
+            for result in ({'code': 0}, {'code': 1, 'message': 'Already checked in'}):
+                with self.subTest(module=name, result=result):
+                    client = Mock()
+                    client.checkin.return_value = result
+                    with patch.object(module.time, 'sleep') as sleep:
+                        self.assertEqual(module.checkin_with_retry(client), (result, True))
+                    client.checkin.assert_called_once()
+                    sleep.assert_not_called()
 
     def test_missing_cookie_fails(self):
         import glados

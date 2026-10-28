@@ -30,5 +30,5 @@ jobs:
           GLADOS_USER_AGENT: ${{ vars.GLADOS_USER_AGENT }}
           EXCHANGE_PLAN: ${{ vars.EXCHANGE_PLAN }}
           CHECKIN_DIAGNOSTIC_ONLY: ${{ github.event.inputs.diagnose_only || 'false' }}
-          CHECKIN_MAX_ATTEMPTS: '3'
+          CHECKIN_MAX_ATTEMPTS: '2'
           CHECKIN_RETRY_DELAY_SECONDS: '60'

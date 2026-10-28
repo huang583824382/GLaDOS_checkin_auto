@@ -180,7 +180,7 @@ def get_browser_headers():
 
 
 def is_non_retryable_checkin_result(result):
-    """返回 True：这类错误不应重试，需重新登录并更新 Cookie / User-Agent。"""
+    """返回 True：识别认证错误，通常需重新登录并更新 Cookie / User-Agent。"""
     if not isinstance(result, dict):
         return False
     code = result.get('code')
@@ -208,7 +208,7 @@ def is_normal_checkin_result(result):
     return result.get('code') == 0
 
 
-def checkin_with_retry(client, attempts=3, delay_seconds=60):
+def checkin_with_retry(client, attempts=2, delay_seconds=60):
     attempts = max(1, attempts)
     last_result = None
 
@@ -220,13 +220,6 @@ def checkin_with_retry(client, attempts=3, delay_seconds=60):
             last_result = None
         if is_normal_checkin_result(last_result):
             return last_result, True
-
-        if is_non_retryable_checkin_result(last_result):
-            message = last_result.get('message', '认证失败')
-            if last_result.get('reason') == 'device-mismatch':
-                message = '登录设备不匹配，请重新登录并更新完整 Cookie 与 GLADOS_USER_AGENT'
-            log(f"签到认证失败，不再重试: {message}")
-            return last_result, False
 
         if attempt < attempts:
             log(f"签到第 {attempt}/{attempts} 次失败，{delay_seconds} 秒后重试")
@@ -393,7 +386,7 @@ def main():
     for i, cookie in enumerate(cookies, 1):
         g = GLaDOS(cookie)
 
-        attempts = int(os.environ.get("CHECKIN_MAX_ATTEMPTS", "3"))
+        attempts = int(os.environ.get("CHECKIN_MAX_ATTEMPTS", "2"))
         delay_seconds = int(os.environ.get("CHECKIN_RETRY_DELAY_SECONDS", "60"))
         res, is_success = checkin_with_retry(g, attempts, delay_seconds)
         msg = res.get('message', 'Failure') if isinstance(res, dict) else "Network Error"
